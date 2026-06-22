@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.6
   provider: ^6.1.1
   sqflite: ^2.3.0
@@ -26,9 +28,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  fonts:
-    - family: NotoSansSC
-      fonts:
-        - asset: assets/fonts/NotoSansSC-Regular.ttf
-        - asset: assets/fonts/NotoSansSC-Bold.ttf
-          weight: 700
