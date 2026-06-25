@@ -19,7 +19,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'daily_accounting.db');
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -82,12 +82,42 @@ class DatabaseHelper {
         icon TEXT DEFAULT 'more_horiz',
         type TEXT NOT NULL,
         sortOrder INTEGER DEFAULT 0,
+        remoteId TEXT DEFAULT NULL,
+        syncStatus INTEGER DEFAULT 0,
         UNIQUE(name, type)
+      )
+    ''');
+    // 分类删除跟踪表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS deleted_category_ids(
+        remoteId TEXT PRIMARY KEY,
+        deletedAt TEXT NOT NULL
       )
     ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 9) {
+      // 自定义分类表（已有则跳过）
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS categories(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          icon TEXT DEFAULT 'more_horiz',
+          type TEXT NOT NULL,
+          sortOrder INTEGER DEFAULT 0,
+          remoteId TEXT DEFAULT NULL,
+          syncStatus INTEGER DEFAULT 0,
+          UNIQUE(name, type)
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS deleted_category_ids(
+          remoteId TEXT PRIMARY KEY,
+          deletedAt TEXT NOT NULL
+        )
+      ''');
+    }
     if (oldVersion < 2) {
       await db.execute('''
         CREATE TABLE IF NOT EXISTS budgets(
@@ -507,6 +537,12 @@ class DatabaseHelper {
 
   // ── 自定义分类 ──
 
+  /// 获取所有自定义分类（不限类型）
+  Future<List<Map<String, dynamic>>> getAllCustomCategories() async {
+    final db = await database;
+    return await db.query('categories', orderBy: 'type ASC, sortOrder ASC, id ASC');
+  }
+
   Future<List<Map<String, dynamic>>> getCustomCategories(String type) async {
     final db = await database;
     return await db.query('categories',
@@ -515,6 +551,7 @@ class DatabaseHelper {
         orderBy: 'sortOrder ASC, id ASC');
   }
 
+  /// 同步新增：插入自定义分类（仅数据库操作，同步由 SyncService 管理）
   Future<int> addCustomCategory(String name, String icon, String type) async {
     final db = await database;
     return await db.insert('categories', {
@@ -522,11 +559,97 @@ class DatabaseHelper {
       'icon': icon,
       'type': type,
       'sortOrder': 0,
+      'syncStatus': 0,
     });
   }
 
+  /// 同步删除：记录已删 remoteId，由 SyncService 推送到云端
   Future<int> deleteCustomCategory(int id) async {
     final db = await database;
+    // 记录已删的 remoteId（如果有）
+    final maps = await db.query('categories',
+        columns: ['remoteId'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (maps.isNotEmpty && maps.first['remoteId'] != null) {
+      final remoteId = maps.first['remoteId'] as String;
+      if (remoteId.isNotEmpty) {
+        try {
+          await db.insert('deleted_category_ids', {
+            'remoteId': remoteId,
+            'deletedAt': DateTime.now().toIso8601String(),
+          });
+        } catch (_) {}
+      }
+    }
     return await db.delete('categories', where: 'id = ?', whereArgs: [id]);
   }
+
+  /// 分类同步相关
+  Future<List<Map<String, dynamic>>> getUnsyncedCategories() async {
+    final db = await database;
+    return await db.query('categories',
+        where: 'syncStatus IS NULL OR syncStatus < 1',
+        orderBy: 'type ASC, id ASC');
+  }
+
+  Future<void> updateCategoryRemoteId(int localId, String remoteId) async {
+    final db = await database;
+    await db.update('categories',
+        {'remoteId': remoteId, 'syncStatus': 1},
+        where: 'id = ?', whereArgs: [localId]);
+  }
+
+  Future<Set<String>> getSyncedCategoryRemoteIds() async {
+    final db = await database;
+    final maps = await db.query('categories',
+        columns: ['remoteId'],
+        where: 'remoteId IS NOT NULL AND remoteId != ""');
+    return maps.map((m) => m['remoteId'] as String).toSet();
+  }
+
+  Future<List<String>> getPendingDeleteCategoryRemoteIds() async {
+    final db = await database;
+    final maps = await db.query('deleted_category_ids');
+    return maps.map((m) => m['remoteId'] as String).toList();
+  }
+
+  Future<Set<String>> getDeletedCategoryRemoteIds() async {
+    final db = await database;
+    final maps = await db.query('deleted_category_ids');
+    return maps.map((m) => m['remoteId'] as String).toSet();
+  }
+
+  Future<void> removeDeletedCategoryRemoteId(String remoteId) async {
+    final db = await database;
+    await db.delete('deleted_category_ids',
+        where: 'remoteId = ?', whereArgs: [remoteId]);
+  }
+
+  /// 安全插入云端分类（按 remoteId 去重）
+  Future<void> insertCategoryFromCloud(Map<String, dynamic> cat) async {
+    final db = await database;
+    final remoteId = cat['id'] as String?;
+    if (remoteId != null && remoteId.isNotEmpty) {
+      try {
+        // 检查 remoteId 是否已存在
+        final existing = await db.query('categories',
+            where: 'remoteId = ?', whereArgs: [remoteId], limit: 1);
+        if (existing.isNotEmpty) return;
+      } catch (_) {}
+    }
+    if (remoteId == null || remoteId.isEmpty) {
+      final existing = await db.query('categories',
+          where: 'name = ? AND type = ?',
+          whereArgs: [cat['name'], cat['type']], limit: 1);
+      if (existing.isNotEmpty) return;
+    }
+    await db.insert('categories', {
+      'name': cat['name'],
+      'icon': cat['icon'] ?? 'more_horiz',
+      'type': cat['type'],
+      'sortOrder': cat['sort_order'] ?? 0,
+      'remoteId': remoteId ?? '',
+      'syncStatus': 1,
+    });
+  }
+
 }

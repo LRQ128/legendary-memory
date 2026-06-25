@@ -90,6 +90,105 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  // ═══════════════════════════════════════════════════
+  // 分类同步
+  // ═══════════════════════════════════════════════════
+
+  Future<void> _syncCategoryDeletionsToCloud() async {
+    final pending = await _db.getPendingDeleteCategoryRemoteIds();
+    for (final remoteId in pending) {
+      try {
+        final response = await http
+            .delete(
+              Uri.parse(
+                  '$_supabaseUrl/rest/v1/categories?id=eq.$remoteId'),
+              headers: {
+                'apikey': _anonKey,
+                if (_accessToken != null)
+                  'Authorization': 'Bearer $_accessToken',
+                'Content-Type': 'application/json',
+              },
+            )
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          await _db.removeDeletedCategoryRemoteId(remoteId);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchCloudCategories() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$_supabaseUrl/rest/v1/categories'
+                '?user_id=eq.$_userId&order=id.asc'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<bool> _uploadCategory(Map<String, dynamic> cat) async {
+    try {
+      final json = Map<String, dynamic>.from(cat);
+      json.remove('id');
+      json.remove('remoteId');
+      json['user_id'] = _userId!;
+      final response = await http
+          .post(
+            Uri.parse('$_supabaseUrl/rest/v1/categories'),
+            headers: _headers,
+            body: jsonEncode(json),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 201) {
+        final List result = jsonDecode(response.body);
+        if (result.isNotEmpty) {
+          final remoteId = result[0]['id'] as String;
+          await _db.updateCategoryRemoteId(cat['id'] as int, remoteId);
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 同步分类：首次全量 + 增量的入口
+  Future<void> _syncCategories() async {
+    // 1. 推送本地删除
+    await _syncCategoryDeletionsToCloud();
+
+    // 2. 获取本地已删除和已有的 remoteId
+    final deletedRemoteIds = await _db.getDeletedCategoryRemoteIds();
+    final existingRemoteIds = await _db.getSyncedCategoryRemoteIds();
+
+    // 3. 上传本地未同步的分类
+    final unsynced = await _db.getUnsyncedCategories();
+    for (final cat in unsynced) {
+      await _uploadCategory(cat);
+    }
+
+    // 4. 上传完成后获取最新本地 remoteId 集合
+    final currentRemoteIds = await _db.getSyncedCategoryRemoteIds();
+
+    // 5. 下载云端分类并合并
+    final cloudCats = await _fetchCloudCategories();
+    for (final cat in cloudCats) {
+      final remoteId = cat['id'] as String?;
+      if (remoteId == null || remoteId.isEmpty) continue;
+      if (deletedRemoteIds.contains(remoteId)) continue;
+      if (currentRemoteIds.contains(remoteId)) continue;
+      await _db.insertCategoryFromCloud(cat);
+    }
+  }
+
   /// 首次登录：全量合并（仅执行一次，防重入）
   Future<bool> initialSync() async {
     if (_userId == null) return false;
@@ -137,6 +236,9 @@ class SyncService extends ChangeNotifier {
         if (existingRemoteIds.contains(tx.remoteId)) continue;
         await _db.insertTransactionOrIgnore(tx);
       }
+
+      // 6. 同步分类
+      await _syncCategories();
 
       _lastSyncTime = DateTime.now().toIso8601String();
       _status = SyncStatus.idle;
@@ -186,6 +288,9 @@ class SyncService extends ChangeNotifier {
         if (currentRemoteIds.contains(tx.remoteId)) continue;
         await _db.insertTransactionOrIgnore(tx);
       }
+
+      // 6. 同步分类
+      await _syncCategories();
 
       _lastSyncTime = DateTime.now().toIso8601String();
       _status = SyncStatus.idle;
