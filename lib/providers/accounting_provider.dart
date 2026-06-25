@@ -9,7 +9,16 @@ class AccountingProvider extends ChangeNotifier {
   List<Transaction> _transactions = [];
   List<Transaction> _currentDayTransactions = [];
   Map<String, double> _categoryExpense = {};
+  Map<String, double> _categoryIncome = {};
   Map<String, double> _monthSummary = {'income': 0, 'expense': 0, 'balance': 0};
+
+  // Year data
+  String _selectedYear = DateFormat('yyyy').format(DateTime.now());
+  Map<String, double> _yearSummary = {'income': 0, 'expense': 0, 'balance': 0};
+  Map<String, double> _yearCategoryExpense = {};
+  Map<String, double> _yearCategoryIncome = {};
+  Map<int, double> _monthlyExpense = {};
+  Map<int, double> _monthlyIncome = {};
   Budget? _currentBudget;
   List<AccountModel> _accounts = [];
   DateTime _selectedDate = DateTime.now();
@@ -18,8 +27,19 @@ class AccountingProvider extends ChangeNotifier {
   List<Transaction> get transactions => _transactions;
   List<Transaction> get currentDayTransactions => _currentDayTransactions;
   Map<String, double> get categoryExpense => _categoryExpense;
+  Map<String, double> get categoryIncome => _categoryIncome;
   Map<String, double> get monthSummary => _monthSummary;
+
+  String get selectedYear => _selectedYear;
+  Map<String, double> get yearSummary => _yearSummary;
+  Map<String, double> get yearCategoryExpense => _yearCategoryExpense;
+  Map<String, double> get yearCategoryIncome => _yearCategoryIncome;
+  Map<int, double> get monthlyExpense => _monthlyExpense;
+  Map<int, double> get monthlyIncome => _monthlyIncome;
   Budget? get currentBudget => _currentBudget;
+  int _totalTransactionCount = 0;
+  int get totalTransactionCount => _totalTransactionCount;
+
   List<AccountModel> get accounts => _accounts;
   DateTime get selectedDate => _selectedDate;
   String get selectedMonth => _selectedMonth;
@@ -37,6 +57,11 @@ class AccountingProvider extends ChangeNotifier {
 
   void setSelectedMonth(String month) {
     _selectedMonth = month;
+    notifyListeners();
+  }
+
+  void setSelectedYear(String year) {
+    _selectedYear = year;
     notifyListeners();
   }
 
@@ -61,8 +86,71 @@ class AccountingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadCategoryIncome() async {
+    _categoryIncome = await _db.getCategoryIncome(_selectedMonth);
+    notifyListeners();
+  }
+
+  // Year data loading
+  Future<void> loadYearSummary() async {
+    _yearSummary = await _db.getYearSummary(_selectedYear);
+    notifyListeners();
+  }
+
+  Future<void> loadYearCategoryExpense() async {
+    _yearCategoryExpense = await _db.getYearCategoryExpense(_selectedYear);
+    notifyListeners();
+  }
+
+  Future<void> loadYearCategoryIncome() async {
+    _yearCategoryIncome = await _db.getYearCategoryIncome(_selectedYear);
+    notifyListeners();
+  }
+
+  Future<void> loadMonthlyExpense() async {
+    _monthlyExpense = await _db.getMonthlyExpense(_selectedYear);
+    notifyListeners();
+  }
+
+  Future<void> loadMonthlyIncome() async {
+    _monthlyIncome = await _db.getMonthlyIncome(_selectedYear);
+    notifyListeners();
+  }
+
+  Future<void> loadAllYearData() async {
+    await Future.wait([
+      loadYearSummary(),
+      loadYearCategoryExpense(),
+      loadYearCategoryIncome(),
+      loadMonthlyExpense(),
+      loadMonthlyIncome(),
+    ]);
+  }
+
   Future<void> loadBudget() async {
     _currentBudget = await _db.getBudget(_selectedMonth);
+    notifyListeners();
+  }
+
+  Future<List<Transaction>> searchTransactions(String keyword) async {
+    return await _db.searchTransactions(keyword);
+  }
+
+  /// 日期区间搜索
+  Future<List<Transaction>> searchTransactionsByDateRange({
+    String keyword = '',
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    return await _db.searchTransactionsByDateRange(
+      keyword: keyword,
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  Future<void> loadTotalCount() async {
+    _totalTransactionCount = await _db.getTransactionCount();
     notifyListeners();
   }
 
@@ -72,7 +160,14 @@ class AccountingProvider extends ChangeNotifier {
   }
 
   Future<void> addTransaction(Transaction tx) async {
-    await _db.insertTransaction(tx);
+    final id = await _db.insertTransaction(tx);
+    print('[DEBUG] TX saved with id=$id');
+    await refreshAll();
+    print('[DEBUG] TX refreshAll done, count=${_transactions.length}');
+  }
+
+  Future<void> updateTransaction(Transaction tx) async {
+    await _db.updateTransaction(tx);
     await refreshAll();
   }
 
@@ -86,17 +181,53 @@ class AccountingProvider extends ChangeNotifier {
     await loadBudget();
   }
 
+  // ── Full Data Export / Import ──
+
+  Future<Map<String, dynamic>> exportAllData() async {
+    final allTxs = await _db.getAllTransactionsWithoutLimit();
+    final allBudgets = await _db.getAllBudgets();
+    return {
+      'version': 1,
+      'exportedAt': DateTime.now().toIso8601String(),
+      'transactions': allTxs.map((tx) => tx.toMap()).toList(),
+      'budgets': allBudgets.map((b) => b.toMap()).toList(),
+    };
+  }
+
+  Future<int> importAllData(Map<String, dynamic> data) async {
+    int count = 0;
+    final txs = data['transactions'] as List<dynamic>? ?? [];
+    for (final m in txs) {
+      final tx = Transaction.fromMap(Map<String, dynamic>.from(m));
+      final txWithoutId = tx.copyWith(id: null);
+      await _db.insertTransaction(txWithoutId);
+      count++;
+    }
+    final budgets = data['budgets'] as List<dynamic>? ?? [];
+    for (final m in budgets) {
+      final b = Budget.fromMap(Map<String, dynamic>.from(m));
+      await _db.setBudget(b);
+    }
+    return count;
+  }
+
   Future<void> refreshAll() async {
-    await loadTransactions();
-    await loadCurrentDayTransactions();
-    await loadMonthSummary();
-    await loadCategoryExpense();
-    await loadBudget();
-    await loadAccounts();
+    try {
+      await loadTransactions();
+      await loadCurrentDayTransactions();
+      await loadMonthSummary();
+      await loadCategoryExpense();
+      await loadBudget();
+      await loadTotalCount();
+      await loadAccounts();
+    } catch (e) {
+      print('[DEBUG] refreshAll error: $e');
+    }
   }
 
   // Category icons & colors
   static const Map<String, IconData> categoryIcons = {
+    // 支出分类
     '餐饮': Icons.restaurant,
     '交通': Icons.directions_bus,
     '购物': Icons.shopping_bag,
@@ -108,11 +239,22 @@ class AccountingProvider extends ChangeNotifier {
     '人情': Icons.favorite,
     '服饰': Icons.checkroom,
     '日用品': Icons.inventory_2,
-    '其他': Icons.more_horiz,
+    // 收入分类
     '工资': Icons.work,
     '奖金': Icons.card_giftcard,
     '理财': Icons.trending_up,
     '兼职': Icons.handyman,
+    // 兜底
+    '其他': Icons.more_horiz,
+    // 旧版长分类名兼容（用户数据库中已存的旧记录）
+    '食品餐饮': Icons.restaurant,
+    '购物消费': Icons.shopping_bag,
+    '出行交通': Icons.directions_bus,
+    '休闲娱乐': Icons.movie,
+    '居家生活': Icons.home,
+    '通讯缴费': Icons.phone_android,
+    '健康医疗': Icons.local_hospital,
+    '文化教育': Icons.school,
   };
 
   static const List<String> expenseCategories = [

@@ -1,11 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/accounting_provider.dart';
+import '../services/auth_service.dart';
+import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
+import 'import_export_page.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final count = Provider.of<AccountingProvider>(context).totalTransactionCount;
+    final auth = context.watch<AuthService>();
+    final sync = context.watch<SyncService>();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -27,81 +36,58 @@ class ProfilePage extends StatelessWidget {
                 CircleAvatar(
                   radius: 32,
                   backgroundColor: AppTheme.primaryGreen,
-                  child: const Text('一木',
+                  child: const Text('L&W',
                       style: TextStyle(
                           color: Colors.white,
-                          fontSize: 20,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(height: 8),
-                const Text('我爱记账',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(
+                  auth.email ?? '未登录',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 4),
-                const Text('坚持记账的第 1 天',
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
-                const Text('已记录 0 条账单',
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+                Text('已记录 $count 条账单',
+                    style: const TextStyle(color: Colors.grey, fontSize: 13)),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // VIP card
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFFD54F), Color(0xFFFFB300)],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
+          // Sync status
+          Card(
+            child: Column(
               children: [
-                const Icon(Icons.auto_awesome, color: Colors.white),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text('升级到高级会员',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15)),
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(20),
+                ListTile(
+                  leading: Icon(
+                    sync.status == SyncStatus.syncing
+                        ? Icons.sync
+                        : sync.lastSyncTime != null
+                            ? Icons.cloud_done
+                            : Icons.cloud_off,
+                    color: sync.status == SyncStatus.syncing
+                        ? Colors.orange
+                        : sync.lastSyncTime != null
+                            ? AppTheme.primaryGreen
+                            : Colors.grey,
                   ),
-                  child: const Text('去开通',
-                      style: TextStyle(color: Colors.white, fontSize: 13)),
+                  title: Text(
+                    sync.status == SyncStatus.syncing
+                        ? '同步中...'
+                        : sync.lastSyncTime != null
+                            ? '已同步'
+                            : '未同步',
+                  ),
+                  subtitle: sync.lastSyncTime != null
+                      ? Text(
+                          '上次同步: ${sync.lastSyncTime!.substring(0, 19).replaceAll('T', ' ')}',
+                          style: const TextStyle(fontSize: 12))
+                      : null,
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Feature grid
-          GridView.count(
-            crossAxisCount: 4,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 0.9,
-            children: [
-              _FeatureItem(icon: Icons.mic, label: '自动记账'),
-              _FeatureItem(icon: Icons.repeat, label: '周期记账'),
-              _FeatureItem(icon: Icons.card_giftcard, label: '愿望清单'),
-              _FeatureItem(icon: Icons.label, label: '分类关键词'),
-              _FeatureItem(icon: Icons.book, label: '账本管理'),
-              _FeatureItem(icon: Icons.local_offer, label: '标签管理'),
-              _FeatureItem(icon: Icons.category, label: '分类管理'),
-              _FeatureItem(icon: Icons.settings, label: '更多设置'),
-            ],
           ),
           const SizedBox(height: 16),
 
@@ -110,54 +96,100 @@ class ProfilePage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.cloud_sync, color: Colors.grey),
-                  title: const Text('云同步'),
-                  trailing: const Text('未开启，数据仅存在本地',
-                      style: TextStyle(color: Colors.red, fontSize: 12)),
+                  leading: const Icon(Icons.sync, color: Colors.blue),
+                  title: const Text('手动同步'),
+                  trailing:
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () async {
+                    final svc = context.read<SyncService>();
+                    await svc.incrementalSync();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(svc.lastSyncTime != null
+                              ? '同步成功'
+                              : '同步失败'),
+                          backgroundColor: svc.lastSyncTime != null
+                              ? Colors.green
+                              : Colors.red,
+                        ),
+                      );
+                    }
+                  },
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.backup, color: Colors.grey),
-                  title: const Text('数据备份'),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.import_export, color: Colors.grey),
+                  leading:
+                      const Icon(Icons.import_export, color: Colors.grey),
                   title: const Text('导入导出'),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  trailing:
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ImportExportPage()),
+                    );
+                  },
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
+
+          // Account
           Card(
-            child: ListTile(
-              leading: const Icon(Icons.palette, color: Colors.grey),
-              title: const Text('主题外观'),
-              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.person_outline, color: Colors.grey),
+                  title: const Text('账号管理'),
+                  trailing: Text(
+                    auth.email ?? '未登录',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.red),
+                  title: const Text('退出登录',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () => _showLogoutDialog(context),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
-}
 
-class _FeatureItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _FeatureItem({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, color: AppTheme.primaryGreen, size: 28),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 11), textAlign: TextAlign.center),
-      ],
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('退出登录'),
+        content: const Text(
+            '退出后本地数据仍然保留，下次登录会自动同步。确定退出？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final sync = context.read<SyncService>();
+              sync.stopAutoSync();
+              sync.clearAuth();
+              final auth = context.read<AuthService>();
+              await auth.logout();
+            },
+            child:
+                const Text('退出', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -25,7 +25,6 @@ class _CalendarPageState extends State<CalendarPage> {
 
   void _loadData() {
     final provider = Provider.of<AccountingProvider>(context, listen: false);
-    final month = DateFormat('yyyy-MM').format(_currentMonth);
     final txs = provider.transactions;
     _dayTransactions = {};
     for (var tx in txs) {
@@ -33,6 +32,217 @@ class _CalendarPageState extends State<CalendarPage> {
       _dayTransactions.putIfAbsent(day, () => []);
       _dayTransactions[day]!.add(tx);
     }
+  }
+
+  void _showDatePickerDialog() {
+    int selectedYear = _currentMonth.year;
+    int selectedMonth = _currentMonth.month;
+    int selectedDay = _selectedDay?.day ?? DateTime.now().day;
+    int maxDay = DateTime(selectedYear, selectedMonth + 1, 0).day;
+    if (selectedDay > maxDay) selectedDay = maxDay;
+
+    final years = List.generate(11, (i) => DateTime.now().year - 5 + i);
+    final months = List.generate(12, (i) => i + 1);
+    final days = List.generate(31, (i) => i + 1);
+
+    final yearController = FixedExtentScrollController(
+        initialItem: years.indexOf(selectedYear));
+    final monthController = FixedExtentScrollController(
+        initialItem: months.indexOf(selectedMonth));
+    final dayController = FixedExtentScrollController(
+        initialItem: days.indexOf(selectedDay));
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setDialogState) {
+          int currentMaxDay =
+              DateTime(selectedYear, selectedMonth + 1, 0).day;
+          if (selectedDay > currentMaxDay) selectedDay = currentMaxDay;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14)),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Title
+                  Padding(
+                    padding: const EdgeInsets.only(top: 20, bottom: 8),
+                    child: Text(
+                      '$selectedYear年${selectedMonth.toString().padLeft(2, '0')}月${selectedDay.toString().padLeft(2, '0')}日 ${_weekdayText(DateTime(selectedYear, selectedMonth, selectedDay).weekday)}',
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  // Wheel columns
+                  SizedBox(
+                    height: 200,
+                    child: Row(
+                      children: [
+                        // Year column
+                        Expanded(
+                          child: _buildWheelColumn(
+                            items: years,
+                            label: '年',
+                            controller: yearController,
+                            onChanged: (i) {
+                              setDialogState(() {
+                                selectedYear = years[i];
+                              });
+                            },
+                          ),
+                        ),
+                        // Month column
+                        Expanded(
+                          child: _buildWheelColumn(
+                            items: months,
+                            label: '月',
+                            controller: monthController,
+                            onChanged: (i) {
+                              setDialogState(() {
+                                selectedMonth = months[i];
+                              });
+                            },
+                          ),
+                        ),
+                        // Day column
+                        Expanded(
+                          child: _buildWheelColumn(
+                            items: days,
+                            label: '日',
+                            controller: dayController,
+                            onChanged: (i) {
+                              setDialogState(() {
+                                selectedDay = days[i];
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Action buttons
+                  Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                          top: BorderSide(color: Color(0xFFE0E0E0))),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.pop(ctx),
+                            child: Container(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14),
+                              decoration: const BoxDecoration(
+                                border: Border(
+                                    right: BorderSide(
+                                        color: Color(0xFFE0E0E0))),
+                              ),
+                              child: const Center(
+                                child: Text('取消',
+                                    style: TextStyle(
+                                        fontSize: 15,
+                                        color: Colors.grey)),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                final dt = DateTime(
+                                    selectedYear, selectedMonth, selectedDay);
+                                _currentMonth =
+                                    DateTime(selectedYear, selectedMonth, 1);
+                                _selectedDay = dt;
+                                final provider =
+                                    Provider.of<AccountingProvider>(context,
+                                        listen: false);
+                                provider.setSelectedMonth(
+                                    DateFormat('yyyy-MM')
+                                        .format(_currentMonth));
+                                provider.setSelectedDate(dt);
+                                provider.loadTransactions();
+                                provider.loadCurrentDayTransactions();
+                              });
+                              Navigator.pop(ctx);
+                            },
+                            child: Container(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14),
+                              child: const Center(
+                                child: Text('确定',
+                                    style: TextStyle(
+                                        fontSize: 15,
+                                        color: Color(0xFF009688),
+                                        fontWeight: FontWeight.w500)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  String _weekdayText(int weekday) {
+    const w = ['', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    return w[weekday];
+  }
+
+  Widget _buildWheelColumn({
+    required List<dynamic> items,
+    required String label,
+    required FixedExtentScrollController controller,
+    required void Function(int) onChanged,
+  }) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        ListWheelScrollView.useDelegate(
+          controller: controller,
+          itemExtent: 44,
+          diameterRatio: 6,
+          physics: const FixedExtentScrollPhysics(),
+          onSelectedItemChanged: onChanged,
+          childDelegate: ListWheelChildBuilderDelegate(
+            childCount: items.length,
+            builder: (ctx, index) => Center(
+              child: Text(
+                '${items[index]}$label',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
+          ),
+        ),
+        // Top and bottom highlight lines
+        Positioned(
+          top: 78,
+          left: 0,
+          right: 0,
+          child: Container(height: 1, color: Colors.grey[300]),
+        ),
+        Positioned(
+          top: 120,
+          left: 0,
+          right: 0,
+          child: Container(height: 1, color: Colors.grey[300]),
+        ),
+      ],
+    );
   }
 
   @override
@@ -49,42 +259,76 @@ class _CalendarPageState extends State<CalendarPage> {
 
     return Column(
       children: [
-        // Header
+        // Header with tappable year-month
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                onPressed: () => setState(() {
-                  _currentMonth =
-                      DateTime(_currentMonth.year, _currentMonth.month - 1, 1);
-                  provider.setSelectedMonth(
-                      DateFormat('yyyy-MM').format(_currentMonth));
-                  provider.loadTransactions();
-                }),
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: _showDatePickerDialog,
+                    child: Row(
+                      children: [
+                        Text(monthStr,
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold)),
+                        const Icon(Icons.arrow_drop_down,
+                            color: Colors.grey, size: 22),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _currentMonth =
+                            DateTime(DateTime.now().year, DateTime.now().month, 1);
+                        _selectedDay = DateTime.now();
+                        provider.setSelectedMonth(
+                            DateFormat('yyyy-MM').format(_currentMonth));
+                        provider.setSelectedDate(DateTime.now());
+                        provider.loadTransactions();
+                        provider.loadCurrentDayTransactions();
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('今',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF4CAF50),
+                              fontWeight: FontWeight.w500)),
+                    ),
+                  ),
+                ],
               ),
-              Text(monthStr,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                onPressed: () {
-                  final next =
-                      DateTime(_currentMonth.year, _currentMonth.month + 1, 1);
-                  if (next.isBefore(DateTime.now().add(const Duration(days: 90)))) {
-                    setState(() {
-                      _currentMonth = next;
-                      provider.setSelectedMonth(
-                          DateFormat('yyyy-MM').format(_currentMonth));
-                      provider.loadTransactions();
-                    });
-                  }
-                },
-              ),
-              const Spacer(),
-              Text(
-                '收 ${summary['income']?.toStringAsFixed(0) ?? '0'}  支 ${summary['expense']?.toStringAsFixed(0) ?? '0'}  余 ${summary['balance']?.toStringAsFixed(0) ?? '0'}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text(
+                    '收 ${summary['income']?.toStringAsFixed(2) ?? '0.00'}',
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFFFF9800)),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '支 ${summary['expense']?.toStringAsFixed(2) ?? '0.00'}',
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFFEF5350)),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '余 ${summary['balance']?.toStringAsFixed(2) ?? '0.00'}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
             ],
           ),
@@ -92,41 +336,53 @@ class _CalendarPageState extends State<CalendarPage> {
 
         // Weekday headers
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           child: Row(
             children: ['日', '一', '二', '三', '四', '五', '六']
                 .map((d) => Expanded(
                       child: Center(
                           child: Text(d,
                               style: const TextStyle(
-                                  fontSize: 13, color: Colors.grey))),
+                                  fontSize: 12, color: Colors.grey))),
                     ))
                 .toList(),
           ),
         ),
-        const SizedBox(height: 4),
 
         // Calendar grid
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           child: GridView.count(
             crossAxisCount: 7,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            childAspectRatio: 1.1,
+            childAspectRatio: 0.85,
             children: [
               ...List.generate(firstWeekday, (_) => const SizedBox()),
               ...List.generate(daysInMonth, (i) {
                 final day = i + 1;
                 final dateStr =
                     '${DateFormat('yyyy-MM').format(_currentMonth)}-${day.toString().padLeft(2, '0')}';
-                final hasTx = _dayTransactions.containsKey(dateStr);
                 final isToday = DateTime.now().day == day &&
                     DateTime.now().month == _currentMonth.month &&
                     DateTime.now().year == _currentMonth.year;
                 final isSelected = _selectedDay != null &&
                     _selectedDay!.day == day &&
                     _selectedDay!.month == _currentMonth.month;
+
+                // Calculate day income/expense
+                double dayIncome = 0, dayExpense = 0;
+                final dayTxs = _dayTransactions[dateStr];
+                if (dayTxs != null) {
+                  for (final tx in dayTxs) {
+                    if (tx.type == 'income') {
+                      dayIncome += tx.amount;
+                    } else {
+                      dayExpense += tx.amount;
+                    }
+                  }
+                }
+                final hasTx = dayIncome > 0 || dayExpense > 0;
 
                 return GestureDetector(
                   onTap: () {
@@ -138,7 +394,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     provider.loadCurrentDayTransactions();
                   },
                   child: Container(
-                    margin: const EdgeInsets.all(2),
+                    margin: const EdgeInsets.all(1.5),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? AppTheme.primaryGreen
@@ -150,10 +406,11 @@ class _CalendarPageState extends State<CalendarPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // Day number
                         Text(
                           '$day',
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight:
                                 isToday || isSelected ? FontWeight.bold : null,
                             color: isSelected
@@ -163,17 +420,29 @@ class _CalendarPageState extends State<CalendarPage> {
                                     : Colors.black87,
                           ),
                         ),
-                        if (hasTx)
-                          Container(
-                            width: 5,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Colors.white
-                                  : AppTheme.primaryGreen,
-                              shape: BoxShape.circle,
+                        // Income amount (green)
+                        if (dayIncome > 0)
+                          Text(
+                            '¥${dayIncome.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 8,
+                              color: Color(0xFF4CAF50),
+                              height: 1.1,
                             ),
                           ),
+                        // Expense amount (red)
+                        if (dayExpense > 0)
+                          Text(
+                            '¥${dayExpense.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 8,
+                              color: Color(0xFFE53935),
+                              height: 1.1,
+                            ),
+                          ),
+                        // Empty space if no tx
+                        if (!hasTx)
+                          const SizedBox(height: 14),
                       ],
                     ),
                   ),
@@ -252,8 +521,7 @@ class _CalendarPageState extends State<CalendarPage> {
         final tx = txs[i];
         final icon =
             AccountingProvider.categoryIcons[tx.category] ?? Icons.more_horiz;
-        final color =
-            AppTheme.categoryColors[tx.category] ?? Colors.grey;
+        final color = AppTheme.categoryColors[tx.category] ?? Colors.grey;
         return Dismissible(
           key: Key(tx.id.toString()),
           direction: DismissDirection.endToStart,
@@ -266,7 +534,9 @@ class _CalendarPageState extends State<CalendarPage> {
             ),
             child: const Icon(Icons.delete, color: Colors.red),
           ),
-          onDismissed: (_) => provider.deleteTransaction(tx.id),
+          onDismissed: (_) {
+            if (tx.id != null) provider.deleteTransaction(tx.id!);
+          },
           child: Card(
             margin: const EdgeInsets.only(bottom: 6),
             child: ListTile(
@@ -277,7 +547,8 @@ class _CalendarPageState extends State<CalendarPage> {
               ),
               title: Text(tx.category, style: const TextStyle(fontSize: 14)),
               subtitle: tx.note.isNotEmpty
-                  ? Text(tx.note, style: const TextStyle(fontSize: 12), maxLines: 1)
+                  ? Text(tx.note,
+                      style: const TextStyle(fontSize: 12), maxLines: 1)
                   : null,
               trailing: Text(
                 '${tx.type == 'income' ? '+' : '-'}¥${tx.amount.toStringAsFixed(2)}',
