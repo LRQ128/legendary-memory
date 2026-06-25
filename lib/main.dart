@@ -15,7 +15,7 @@ import 'pages/voice_input.dart';
 import 'pages/search_page.dart';
 import 'models/transaction.dart';
 
-// Supabase 配置已迁移到 services/app_config.dart
+import 'services/app_config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

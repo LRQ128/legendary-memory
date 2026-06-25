@@ -70,6 +70,9 @@ class DatabaseHelper {
       'balance': 0.0,
       'type': 'asset',
     });
+
+    // 唯一索引：防止同一条云端数据重复插入
+    await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_remoteId ON transactions(remoteId) WHERE remoteId IS NOT NULL AND remoteId != ""');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {

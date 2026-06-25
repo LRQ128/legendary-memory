@@ -129,10 +129,12 @@ class SyncService extends ChangeNotifier {
         }
       }
 
-      // 5. 下载云端数据（跳过已删，更新或插入）
+      // 5. 下载云端数据（跳过已删和本地已有的，防止重复）
+      // 注：upload后本地已有remoteId已更新，但cloudTxs是在upload前拉的，所以需额外用existingRemoteIds去重
       for (final tx in cloudTxs) {
         if (tx.remoteId == null) continue;
         if (deletedRemoteIds.contains(tx.remoteId)) continue;
+        if (existingRemoteIds.contains(tx.remoteId)) continue;
         await _db.insertTransactionOrIgnore(tx);
       }
 
@@ -173,18 +175,15 @@ class SyncService extends ChangeNotifier {
         }
       }
 
-      // 4. 上传完成后重新获取本地已有的 remoteId（刚才上传的已拿到 remoteId）
-      final updatedRemoteIds = await _db.getSyncedRemoteIds();
-
-      // 5. 下载云端数据（跳过已删和已有的）
-      // 上传后重新查 remoteId，确保刚上传的数据也能跳过
+      // 4. 上传完成后重新获取远程ID列表（刚上传的记录已拿到 remoteId）
       final currentRemoteIds = await _db.getSyncedRemoteIds();
+
+      // 5. 下载云端数据（跳过已删和本地已有的）
       final cloudTxs = await _fetchCloudTransactions();
       for (final tx in cloudTxs) {
         if (tx.remoteId == null) continue;
         if (deletedRemoteIds.contains(tx.remoteId)) continue;
         if (currentRemoteIds.contains(tx.remoteId)) continue;
-        // 用安全方式插入，即使 remoteId 已存在也不会报错或重复
         await _db.insertTransactionOrIgnore(tx);
       }
 
