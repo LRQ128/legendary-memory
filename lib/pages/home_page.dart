@@ -167,6 +167,8 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       _buildMonthSummary(provider),
                       const SizedBox(height: 8),
+                      _buildAddButton(),
+                      const SizedBox(height: 8),
                       for (final dateKey in sortedDates) ...[
                         _buildDateHeader(dateKey, dateGroups[dateKey]!, todayStr),
                         ...dateGroups[dateKey]!.map((tx) => _buildTransactionItem(context, provider, tx)),
@@ -183,9 +185,10 @@ class _HomePageState extends State<HomePage> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF009688), Color(0xFF4DB6AC)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: const Color(0xFF009688).withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
+        border: Border.all(color: Colors.grey[200]!),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -199,11 +202,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildSummaryItem(String label, double amount) {
+    final isBalance = label == '结余';
+    final Color numberColor = isBalance && amount < 0
+        ? const Color(0xFFFF5252)
+        : Colors.black;
     return Column(
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
         const SizedBox(height: 4),
-        Text('¥${amount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+        Text('¥${amount.toStringAsFixed(2)}',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: numberColor)),
       ],
     );
   }
@@ -316,6 +324,25 @@ class _HomePageState extends State<HomePage> {
             ]),
             trailing: _buildTrailing(tx),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 添加一笔新记账按钮
+  Widget _buildAddButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: () => Navigator.pushNamed(context, '/add'),
+        icon: const Icon(Icons.add_circle_outline, size: 20),
+        label: const Text('添加一笔新记账', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF009688),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          elevation: 0,
         ),
       ),
     );

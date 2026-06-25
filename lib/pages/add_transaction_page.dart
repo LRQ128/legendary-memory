@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../providers/accounting_provider.dart';
+import '../models/database.dart';
 import '../models/transaction.dart';
 
 
@@ -25,6 +26,11 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   late DateTime _date;
   Transaction? _editing; // 编辑模式下的原始记录
   final List<String> _images = []; // 附件图片路径
+
+  // 自定义分类（从数据库加载）
+  List<String> _customExpenseCats = [];
+  List<String> _customIncomeCats = [];
+  final Map<String, IconData> _customIcons = {}; // 自定义分类名 → IconData
 
   // 计算器模式状态
   double? _firstOperand;
@@ -99,6 +105,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   @override
   void initState() {
     super.initState();
+    _loadCustomCategories();
     _editing = widget.editTransaction;
     if (_editing != null) {
       // 编辑模式：预填已有数据
@@ -113,6 +120,33 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       if (widget.type != null) {
         _type = widget.type!;
       }
+    }
+  }
+
+  /// 从数据库加载自定义分类
+  Future<void> _loadCustomCategories() async {
+    final dbProvider = Provider.of<AccountingProvider>(context, listen: false).database;
+    final expenseCats = await dbProvider.getCustomCategories('expense');
+    final incomeCats = await dbProvider.getCustomCategories('income');
+    final icons = <String, IconData>{};
+    for (final row in [...expenseCats, ...incomeCats]) {
+      final name = row['name'] as String;
+      final iconStr = row['icon'] as String? ?? 'more_horiz';
+      icons[name] = iconNameToIcon[iconStr] ?? Icons.more_horiz;
+    }
+    setState(() {
+      _customExpenseCats = expenseCats.map((e) => e['name'] as String).toList();
+      _customIncomeCats = incomeCats.map((e) => e['name'] as String).toList();
+      _customIcons.addAll(icons);
+    });
+  }
+
+  /// 获取当前类型的所有分类（含自定义）
+  List<String> _getCategories(String type) {
+    if (type == 'expense') {
+      return [..._expenseCategories, ..._expenseSecondRow, ..._customExpenseCats];
+    } else {
+      return [..._incomeCategories, ..._customIncomeCats];
     }
   }
 
@@ -377,58 +411,87 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     if (_type == 'expense') {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Row 1: 5 main categories
-          Row(children: _expenseCategories
-              .map((cat) => Expanded(child: _buildCategoryItem(cat)))
-              .toList()),
-          const SizedBox(height: 14),
-          // Row 2: second main row + add button
-          Row(children: [
-            for (final cat in _expenseSecondRow)
-              Expanded(child: _buildCategoryItem(cat)),
-            Expanded(child: _buildAddCategoryItem()),
-          ]),
-        ],
+        children: _buildExpenseCategoryRows(),
       );
     } else {
-      // Income: rows of 5
-      final rows = <Widget>[];
-      int i = 0;
-      while (i < _incomeCategories.length) {
-        final end = (i + 5 > _incomeCategories.length)
-            ? _incomeCategories.length
-            : i + 5;
-        final chunk = _incomeCategories.sublist(i, end).toList();
-        // Build row items: actual categories + add button at the end if last row
-        final rowItems = <Widget>[];
-        for (final cat in chunk) {
-          rowItems.add(Expanded(child: _buildCategoryItem(cat)));
-        }
-        // On the last full or partial row, append add button
-        if (end == _incomeCategories.length) {
-          rowItems.add(Expanded(child: _buildAddCategoryItem()));
-        }
-        // Pad remaining slots to maintain 5-column alignment
-        while (rowItems.length < 5) {
-          rowItems.add(const Expanded(child: SizedBox()));
-        }
-        rows.add(Row(children: rowItems));
-        if (end < _incomeCategories.length) {
-          rows.add(const SizedBox(height: 14));
-        }
-        i = end;
-      }
-      return Column(children: rows);
+      return Column(children: _buildIncomeCategoryRows());
     }
+  }
+
+  List<Widget> _buildExpenseCategoryRows() {
+    final allCats = [
+      ..._expenseCategories,
+      ..._expenseSecondRow,
+      ..._customExpenseCats,
+    ];
+    final rows = <Widget>[];
+    // First row: first 5
+    final row1 = allCats.take(5).toList();
+    rows.add(Row(
+        children: row1.map((c) => Expanded(child: _buildCategoryItem(c))).toList()));
+    // Second row: next 4 + add button
+    if (allCats.length > 5) {
+      final row2 = allCats.sublist(5, allCats.length > 9 ? 9 : allCats.length);
+      rows.add(const SizedBox(height: 14));
+      final row2Widgets = <Widget>[
+        ...row2.map((c) => Expanded(child: _buildCategoryItem(c))),
+      ];
+      while (row2Widgets.length < 4) {
+        row2Widgets.add(const Expanded(child: SizedBox()));
+      }
+      row2Widgets.add(Expanded(child: _buildAddCategoryItem()));
+      rows.add(Row(children: row2Widgets));
+    } else {
+      rows.add(const SizedBox(height: 14));
+      rows.add(Row(children: [
+        Expanded(child: SizedBox()),
+        Expanded(child: SizedBox()),
+        Expanded(child: SizedBox()),
+        Expanded(child: SizedBox()),
+        Expanded(child: _buildAddCategoryItem()),
+      ]));
+    }
+    return rows;
+  }
+
+  List<Widget> _buildIncomeCategoryRows() {
+    final allCats = [..._incomeCategories, ..._customIncomeCats];
+    final rows = <Widget>[];
+    int i = 0;
+    while (i < allCats.length) {
+      final end = (i + 5 > allCats.length) ? allCats.length : i + 5;
+      final chunk = allCats.sublist(i, end);
+      final rowItems = chunk.map((c) => Expanded(child: _buildCategoryItem(c))).toList();
+      if (end == allCats.length) {
+        rowItems.add(Expanded(child: _buildAddCategoryItem()));
+      }
+      while (rowItems.length < 6) {
+        rowItems.add(const Expanded(child: SizedBox()));
+      }
+      rows.add(Row(children: rowItems));
+      if (end < allCats.length) {
+        rows.add(const SizedBox(height: 14));
+      }
+      i = end;
+    }
+    return rows;
+  }
+
+  /// 判断是否为自定义分类
+  bool _isCustomCategory(String cat) {
+    return _customExpenseCats.contains(cat) || _customIncomeCats.contains(cat);
   }
 
   Widget _buildCategoryItem(String category, {bool inGroup = false}) {
     final selected = _category == category;
-    final icon = _iconMap[category] ?? Icons.more_horiz;
+    final icon = _iconMap[category] ?? _customIcons[category] ?? Icons.more_horiz;
+    final isCustom = _isCustomCategory(category);
 
     return GestureDetector(
       onTap: () => setState(() => _category = category),
+      onLongPress: isCustom
+          ? () => _showDeleteCategoryDialog(category)
+          : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -459,9 +522,142 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     );
   }
 
+  /// 可用图标列表供用户选择
+  static const Map<String, IconData> iconNameToIcon = {
+    'restaurant': Icons.restaurant_menu_outlined,
+    'directions_car': Icons.directions_car_outlined,
+    'shopping_bag': Icons.shopping_bag_outlined,
+    'sports_esports': Icons.sports_esports_outlined,
+    'home': Icons.home_outlined,
+    'phone_android': Icons.phone_android_outlined,
+    'medical_services': Icons.medical_services_outlined,
+    'menu_book': Icons.menu_book_outlined,
+    'card_giftcard': Icons.card_giftcard_outlined,
+    'checkroom': Icons.checkroom_outlined,
+    'inventory_2': Icons.inventory_2_outlined,
+    'work': Icons.work_outlined,
+    'account_balance_wallet': Icons.account_balance_wallet_outlined,
+    'build': Icons.build_outlined,
+    'emoji_events': Icons.emoji_events_outlined,
+    'favorite': Icons.favorite_outlined,
+    'handshake': Icons.handshake_outlined,
+    'volunteer_activism': Icons.volunteer_activism_outlined,
+    'receipt_long': Icons.receipt_long_outlined,
+    'pets': Icons.pets_outlined,
+    'flight': Icons.flight_outlined,
+    'local_gas_station': Icons.local_gas_station_outlined,
+    'coffee': Icons.coffee_outlined,
+    'child_care': Icons.child_care_outlined,
+    'fitness_center': Icons.fitness_center_outlined,
+  };
+
+  Future<void> _showDeleteCategoryDialog(String category) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除分类'),
+        content: Text('确定删除分类「$category」？已有的账单数据不会受影响。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      final db = DatabaseHelper();
+      final cats = await db.getCustomCategories(_type);
+      for (final cat in cats) {
+        if (cat['name'] == category) {
+          await db.deleteCustomCategory(cat['id'] as int);
+          break;
+        }
+      }
+      await _loadCustomCategories();
+      if (_category == category) {
+        setState(() => _category = '其他');
+      }
+    }
+  }
+
+  Future<void> _showAddCategoryDialog() async {
+    final nameController = TextEditingController();
+    String selectedIcon = 'apps';
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('新增分类'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: '分类名称',
+                    border: OutlineInputBorder(),
+                    hintText: '输入分类名称',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text('选择图标', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 120,
+                  child: GridView.count(
+                    crossAxisCount: 5,
+                    childAspectRatio: 1.2,
+                    children: iconNameToIcon.entries.map((entry) {
+                      final isSelected = selectedIcon == entry.key;
+                      return GestureDetector(
+                        onTap: () => setDialogState(() => selectedIcon = entry.key),
+                        child: Container(
+                          margin: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFE0F2F1) : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                            border: isSelected ? Border.all(color: const Color(0xFF009688), width: 1.5) : null,
+                          ),
+                          child: Icon(entry.value, size: 22, color: isSelected ? const Color(0xFF00796B) : Colors.grey[600]),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            TextButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                Navigator.pop(ctx, {'name': name, 'icon': selectedIcon});
+              },
+              child: const Text('确定', style: TextStyle(color: Color(0xFF009688))),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null) {
+      final provider = Provider.of<AccountingProvider>(context, listen: false);
+      await provider.database.addCustomCategory(result['name']!, result['icon']!, _type);
+      await _loadCustomCategories();
+    }
+  }
+
   Widget _buildAddCategoryItem() {
     return GestureDetector(
-      onTap: () {},
+      onTap: _showAddCategoryDialog,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

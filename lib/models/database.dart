@@ -73,6 +73,18 @@ class DatabaseHelper {
 
     // 唯一索引：防止同一条云端数据重复插入
     await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_remoteId ON transactions(remoteId) WHERE remoteId IS NOT NULL AND remoteId != ""');
+
+    // 自定义分类表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS categories(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        icon TEXT DEFAULT 'more_horiz',
+        type TEXT NOT NULL,
+        sortOrder INTEGER DEFAULT 0,
+        UNIQUE(name, type)
+      )
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -491,5 +503,30 @@ class DatabaseHelper {
         columns: ['remoteId'],
         where: 'remoteId IS NOT NULL AND remoteId != ""');
     return maps.where((m) => m['remoteId'] != null).map((m) => m['remoteId'] as String).toSet();
+  }
+
+  // ── 自定义分类 ──
+
+  Future<List<Map<String, dynamic>>> getCustomCategories(String type) async {
+    final db = await database;
+    return await db.query('categories',
+        where: 'type = ?',
+        whereArgs: [type],
+        orderBy: 'sortOrder ASC, id ASC');
+  }
+
+  Future<int> addCustomCategory(String name, String icon, String type) async {
+    final db = await database;
+    return await db.insert('categories', {
+      'name': name,
+      'icon': icon,
+      'type': type,
+      'sortOrder': 0,
+    });
+  }
+
+  Future<int> deleteCustomCategory(int id) async {
+    final db = await database;
+    return await db.delete('categories', where: 'id = ?', whereArgs: [id]);
   }
 }

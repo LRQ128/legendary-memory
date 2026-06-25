@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 class AccountingProvider extends ChangeNotifier {
   final DatabaseHelper _db = DatabaseHelper();
+  DatabaseHelper get database => _db;
 
   List<Transaction> _transactions = [];
   List<Transaction> _currentDayTransactions = [];
