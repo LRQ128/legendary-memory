@@ -66,6 +66,59 @@ class AccountingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 自定义分类图标缓存（从数据库加载）
+  Map<String, IconData> customCategoryIcons = {};
+
+  /// 获取某个分类的图标（含自定义分类）
+  IconData getIconForCategory(String category) {
+    return categoryIcons[category] ?? customCategoryIcons[category] ?? Icons.more_horiz;
+  }
+
+  /// 加载自定义分类图标到缓存
+  Future<void> loadCustomCategoryIcons() async {
+    final cats = await _db.getAllCustomCategories();
+    final icons = <String, IconData>{};
+    for (final row in cats) {
+      final name = row['name'] as String;
+      final iconStr = row['icon'] as String? ?? 'more_horiz';
+      icons[name] = _iconNameToIcon(iconStr);
+    }
+    customCategoryIcons = icons;
+    notifyListeners();
+  }
+
+  /// 图标字符串 → IconData
+  static IconData _iconNameToIcon(String name) {
+    switch (name) {
+      case 'restaurant': return Icons.restaurant_menu_outlined;
+      case 'directions_car': return Icons.directions_car_outlined;
+      case 'shopping_bag': return Icons.shopping_bag_outlined;
+      case 'sports_esports': return Icons.sports_esports_outlined;
+      case 'home': return Icons.home_outlined;
+      case 'phone_android': return Icons.phone_android_outlined;
+      case 'medical_services': return Icons.medical_services_outlined;
+      case 'menu_book': return Icons.menu_book_outlined;
+      case 'card_giftcard': return Icons.card_giftcard_outlined;
+      case 'checkroom': return Icons.checkroom_outlined;
+      case 'inventory_2': return Icons.inventory_2_outlined;
+      case 'work': return Icons.work_outlined;
+      case 'account_balance_wallet': return Icons.account_balance_wallet_outlined;
+      case 'build': return Icons.build_outlined;
+      case 'emoji_events': return Icons.emoji_events_outlined;
+      case 'favorite': return Icons.favorite_outlined;
+      case 'handshake': return Icons.handshake_outlined;
+      case 'volunteer_activism': return Icons.volunteer_activism_outlined;
+      case 'receipt_long': return Icons.receipt_long_outlined;
+      case 'pets': return Icons.pets_outlined;
+      case 'flight': return Icons.flight_outlined;
+      case 'local_gas_station': return Icons.local_gas_station_outlined;
+      case 'coffee': return Icons.coffee_outlined;
+      case 'child_care': return Icons.child_care_outlined;
+      case 'fitness_center': return Icons.fitness_center_outlined;
+      default: return Icons.more_horiz;
+    }
+  }
+
   Future<void> loadTransactions() async {
     _transactions = await _db.getTransactions(month: _selectedMonth);
     notifyListeners();
@@ -214,6 +267,7 @@ class AccountingProvider extends ChangeNotifier {
 
   Future<void> refreshAll() async {
     try {
+      await loadCustomCategoryIcons();
       await loadTransactions();
       await loadCurrentDayTransactions();
       await loadMonthSummary();

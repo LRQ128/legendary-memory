@@ -135,10 +135,14 @@ class SyncService extends ChangeNotifier {
 
   Future<bool> _uploadCategory(Map<String, dynamic> cat) async {
     try {
-      final json = Map<String, dynamic>.from(cat);
-      json.remove('id');
-      json.remove('remoteId');
-      json['user_id'] = _userId!;
+      // 只发送云端表存在的字段
+      final json = <String, dynamic>{
+        'user_id': _userId!,
+        'name': cat['name'],
+        'icon': cat['icon'] ?? 'more_horiz',
+        'type': cat['type'],
+        'sort_order': cat['sortOrder'] ?? 0,
+      };
       final response = await http
           .post(
             Uri.parse('$_supabaseUrl/rest/v1/categories'),
@@ -161,31 +165,35 @@ class SyncService extends ChangeNotifier {
   }
 
   /// 同步分类：首次全量 + 增量的入口
+  /// 独立 try-catch，不影响账单同步
   Future<void> _syncCategories() async {
-    // 1. 推送本地删除
-    await _syncCategoryDeletionsToCloud();
+    try {
+      await _syncCategoryDeletionsToCloud();
 
-    // 2. 获取本地已删除和已有的 remoteId
-    final deletedRemoteIds = await _db.getDeletedCategoryRemoteIds();
-    final existingRemoteIds = await _db.getSyncedCategoryRemoteIds();
+      final deletedRemoteIds = await _db.getDeletedCategoryRemoteIds();
+      final existingRemoteIds = await _db.getSyncedCategoryRemoteIds();
 
-    // 3. 上传本地未同步的分类
-    final unsynced = await _db.getUnsyncedCategories();
-    for (final cat in unsynced) {
-      await _uploadCategory(cat);
-    }
+      final unsynced = await _db.getUnsyncedCategories();
+      for (final cat in unsynced) {
+        final ok = await _uploadCategory(cat);
+        if (!ok) {
+          debugPrint('[_syncCategories] upload failed: ${cat['name']} (${cat['type']})');
+        }
+      }
 
-    // 4. 上传完成后获取最新本地 remoteId 集合
-    final currentRemoteIds = await _db.getSyncedCategoryRemoteIds();
+      final currentRemoteIds = await _db.getSyncedCategoryRemoteIds();
 
-    // 5. 下载云端分类并合并
-    final cloudCats = await _fetchCloudCategories();
-    for (final cat in cloudCats) {
-      final remoteId = cat['id'] as String?;
-      if (remoteId == null || remoteId.isEmpty) continue;
-      if (deletedRemoteIds.contains(remoteId)) continue;
-      if (currentRemoteIds.contains(remoteId)) continue;
-      await _db.insertCategoryFromCloud(cat);
+      final cloudCats = await _fetchCloudCategories();
+      for (final cat in cloudCats) {
+        final remoteId = cat['id'] as String?;
+        if (remoteId == null || remoteId.isEmpty) continue;
+        if (deletedRemoteIds.contains(remoteId)) continue;
+        if (currentRemoteIds.contains(remoteId)) continue;
+        await _db.insertCategoryFromCloud(cat);
+      }
+    } catch (e, stack) {
+      debugPrint('[_syncCategories] error: $e\n$stack');
+      // 不往外抛，不影响账单同步
     }
   }
 

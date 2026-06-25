@@ -262,7 +262,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildTransactionItem(BuildContext context, AccountingProvider provider, Transaction tx) {
-    final icon = AccountingProvider.categoryIcons[tx.category] ?? Icons.more_horiz;
+    final icon = provider.getIconForCategory(tx.category);
 
     if (_isSelecting) {
       return Container(

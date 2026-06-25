@@ -424,24 +424,24 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       ..._expenseSecondRow,
       ..._customExpenseCats,
     ];
+    // 动态分页：每行5个，最后一行末尾放"新增"按钮
     final rows = <Widget>[];
-    // First row: first 5
-    final row1 = allCats.take(5).toList();
-    rows.add(Row(
-        children: row1.map((c) => Expanded(child: _buildCategoryItem(c))).toList()));
-    // Second row: next 4 + add button
-    if (allCats.length > 5) {
-      final row2 = allCats.sublist(5, allCats.length > 9 ? 9 : allCats.length);
-      rows.add(const SizedBox(height: 14));
-      final row2Widgets = <Widget>[
-        ...row2.map((c) => Expanded(child: _buildCategoryItem(c))),
-      ];
-      while (row2Widgets.length < 4) {
-        row2Widgets.add(const Expanded(child: SizedBox()));
+    int i = 0;
+    while (i < allCats.length) {
+      if (i > 0) rows.add(const SizedBox(height: 14));
+      final end = (i + 5 > allCats.length) ? allCats.length : i + 5;
+      final chunk = allCats.sublist(i, end);
+      final rowItems = chunk.map((c) => Expanded(child: _buildCategoryItem(c))).toList();
+      if (end == allCats.length) {
+        rowItems.add(Expanded(child: _buildAddCategoryItem()));
       }
-      row2Widgets.add(Expanded(child: _buildAddCategoryItem()));
-      rows.add(Row(children: row2Widgets));
-    } else {
+      while (rowItems.length < 5) {
+        rowItems.add(const Expanded(child: SizedBox()));
+      }
+      rows.add(Row(children: rowItems));
+      i = end;
+    }
+    if (allCats.isEmpty) {
       rows.add(const SizedBox(height: 14));
       rows.add(Row(children: [
         Expanded(child: SizedBox()),
@@ -465,7 +465,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       if (end == allCats.length) {
         rowItems.add(Expanded(child: _buildAddCategoryItem()));
       }
-      while (rowItems.length < 6) {
+      // 补齐到5列（收入分类按5列布局）
+      while (rowItems.length < 5) {
         rowItems.add(const Expanded(child: SizedBox()));
       }
       rows.add(Row(children: rowItems));

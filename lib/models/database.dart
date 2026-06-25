@@ -98,7 +98,7 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 9) {
-      // 自定义分类表（已有则跳过）
+      // 自定义分类表（已有则跳过，补充新列）
       await db.execute('''
         CREATE TABLE IF NOT EXISTS categories(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,11 +106,18 @@ class DatabaseHelper {
           icon TEXT DEFAULT 'more_horiz',
           type TEXT NOT NULL,
           sortOrder INTEGER DEFAULT 0,
-          remoteId TEXT DEFAULT NULL,
-          syncStatus INTEGER DEFAULT 0,
           UNIQUE(name, type)
         )
       ''');
+      // 为旧版已存在的 categories 表补充 remoteId 和 syncStatus 列
+      final catTableInfo = await db.rawQuery('PRAGMA table_info(categories)');
+      final catColumns = catTableInfo.map((r) => r['name'] as String).toSet();
+      if (!catColumns.contains('remoteId')) {
+        try { await db.execute('ALTER TABLE categories ADD COLUMN remoteId TEXT DEFAULT NULL'); } catch (_) {}
+      }
+      if (!catColumns.contains('syncStatus')) {
+        try { await db.execute('ALTER TABLE categories ADD COLUMN syncStatus INTEGER DEFAULT 0'); } catch (_) {}
+      }
       await db.execute('''
         CREATE TABLE IF NOT EXISTS deleted_category_ids(
           remoteId TEXT PRIMARY KEY,
