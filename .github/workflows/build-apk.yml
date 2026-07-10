@@ -5,9 +5,14 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+  FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
 
@@ -16,15 +21,37 @@ jobs:
         with:
           flutter-version: '3.22.x'
           channel: 'stable'
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Check network and configure mirrors
+        run: |
+          echo "PUB_HOSTED_URL=https://pub.flutter-io.cn" >> $GITHUB_ENV
+          echo "FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn" >> $GITHUB_ENV
+          echo "Network configured with Chinese mirrors"
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build Debug APK
         run: flutter build apk --debug
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: daily-accounting-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Build Release APK (signed)
+        run: flutter build apk --release
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-accounting-release
+          path: build/app/outputs/flutter-apk/app-release.apk
