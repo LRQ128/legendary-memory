@@ -1,5 +1,10 @@
 pluginManagement {
-    def flutterSdkPath = "/tmp/flutter"
+    def flutterSdkPath = System.getenv('FLUTTER_ROOT')
+    if (flutterSdkPath == null) {
+        Properties properties = new Properties()
+        file("local.properties").withInputStream { properties.load(it) }
+        flutterSdkPath = properties.getProperty('flutter.sdk')
+    }
     includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
 
     repositories {
