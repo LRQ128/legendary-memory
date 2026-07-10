@@ -1,6 +1,12 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
-apply from: "/tmp/flutter/packages/flutter_tools/gradle/flutter.gradle"
+def flutterRoot = System.getenv('FLUTTER_ROOT')
+if (flutterRoot == null) {
+    Properties properties = new Properties()
+    file("local.properties").withInputStream { properties.load(it) }
+    flutterRoot = properties.getProperty('flutter.sdk')
+}
+apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 
 def keystorePropertiesFile = rootProject.file("key.properties")
